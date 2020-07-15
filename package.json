@@ -1,0 +1,42 @@
+{
+  "name": "we-heart-shoes-api",
+  "author": "ClockworkSquirrel",
+  "version": "0.0.1",
+  "description": "Backend service for the we-heart-shoes app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "jsdom": "^16.3.0",
+    "axios": "^0.19.2",
+    "flat-cache": "^2.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ClockworkSquirrel/we-heart-shoes-api"
+  },
+  "bugs": {
+    "url": "https://github.com/ClockworkSquirrel/we-heart-shoes-api/issues"
+  },
+  "homepage": "https://github.com/ClockworkSquirrel/we-heart-shoes-api",
+  "engines": {
+    "node": "12.x"
+  },
+  "keywords": [
+    "shoes",
+    "shoezone",
+    "api",
+    "rest",
+    "express",
+    "html",
+    "parser",
+    "scraper",
+    "portfolio",
+    "demo",
+    "data",
+    "query"
+  ],
+  "license": "MIT"
+}
