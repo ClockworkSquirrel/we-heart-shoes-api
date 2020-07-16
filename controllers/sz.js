@@ -136,7 +136,7 @@ function checkStoreStock({ styleCode, size, storeId, quantity = 1 }) {
     "data": `{
       '_prod_CCStoreNo': { 'val': '${storeId}', 'err': '' },
       '_prod_SizeId': { 'val': '${styleCode}${size}', 'err': '' },
-      '_prod_Qty': { 'val': '${quantity}', 'err': '' },
+      '_prod_Qty': { 'val': '${quantity || 1}', 'err': '' },
       '_prod_hasStockInWH': { 'val': 'true', 'err': '' },
       '_prod_Action': { 'val': 'getStoreStock', 'err': '' }
     }`
