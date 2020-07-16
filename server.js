@@ -6,6 +6,9 @@ const express = require("express")
 const path = require("path")
 const app = express()
 
+// Allow requests from remote clients/servers
+app.use(require("cors")())
+
 // Handle routing by initiating "routes/index.js"
 app.use(require(path.join(__dirname, "routes")))
 
