@@ -34,9 +34,22 @@ const szURL = new URL(process.env.SZAPI)
   products: Stores information pertaining to products
 */
 const cache = {
-  locator: fcache.load("store-locator-api"),
-  products: fcache.load("product-api")
+  locator: fcache.load("store-locator-api.json", "./_cache"),
+  products: fcache.load("product-api.json", "./_cache")
 }
+
+/*
+  The following Array contains a list of ignored strings when abbreviating offers. This is necessary
+  as sometimes product pages display badges such as "Memory Foam Insoles" where offer icons would
+  usually be. Unfortunately, there is nothing to differentiate these badges from actual offers, and
+  therefore we must manually specify which "offers" to ignore.
+  
+  This list is not case-senstive, but the name must exactly match that of the [title] attribute
+  of the offer badge.
+*/
+const ignoredOffers = [
+  "memory foam"
+]
 
 /*
   Public method:
@@ -54,6 +67,10 @@ const cache = {
   }
 */
 function locateStore({ lat, lon, city, postcode }) {
+  // If specified, truncate lat/lon to 2 decimal places. This should be
+  // an appropriate accuracy to use.
+  lat = (Number(lat) || 0).toFixed(2), lon = (Number(lon) || 0).toFixed(2)
+  
   // Check for an entry in the cache before making a request to the API
   // The key is composed of the supplied data, transformed into a CSV
   const cacheKey = `near:${[ lat, lon, city, postcode ].filter(v => v !== undefined).map(v => String(v).toLowerCase()).join(",")}`
@@ -68,8 +85,8 @@ function locateStore({ lat, lon, city, postcode }) {
       "_sRequestJSON": `{
         "Town": "${city || ""}",
         "PostCode": "${postcode ? postcode.split(" ").join("").toUpperCase() : ""}",
-        "Latitude": ${lat || 0},
-        "Longitude": ${lon || 0},
+        "Latitude": ${lat},
+        "Longitude": ${lon},
         "StartDistance": 0,
         "NumberOfStores": 1
       }`
@@ -99,7 +116,7 @@ function locateStore({ lat, lon, city, postcode }) {
     storePhone: data.Telephone.split(" ").join("")
   })).then(data => {
     cache.locator.setKey(cacheKey, data)
-    cache.locator.save()
+    cache.locator.save(true)
     
     return data
   })
@@ -170,39 +187,43 @@ function checkStoreStock({ styleCode, size, storeId, quantity = 1 }) {
 
 /*
   Private method:
-  fetchWebpage(pathname?: string = "/", doCache?: boolean = true): Promise
+  fetchWebpage(pathname?: string = "/", cacheTTL?: number = 31536000): Promise<Object{
+    result: JSDOM | any,
+    setCache: function<void>(value: any)
+  }>
   
   Will fetch a page from the Shoe Zone website, given a pathname, using a basic GET request.
   The returned Promise will resolve with a JSDOM object. Manipulation can be performed
   as if used in the browser (thanks to the JSDOM library).
   
-  Set `doCache` to false to disable caching of the webpage. This is particularly
-  useful when fetching live data (such as stock levels).
+  `cacheTTL` determines how long the cached value will be stored before it expires. Setting
+  this to `false` will ignore the cached value when fetching a webpage. As of 2020-07-20,
+  this method no longer caches the resulting HTML, and instead returns an Object which contains
+  a `setCache` callback, taking a single "value" parameter. Call this to set the content of
+  the cache to return when the same URL is requested. If cacheTTL was falsey when the webpage
+  was fetched, the setCache callback will return instantly to prevent setting cached data.
 */
-function fetchWebpage(pathname = "/", doCache = true) {
+function fetchWebpage(pathname = "/", cacheTTL = 31536000) {
   // The key which data will be indexed under by the cache
   const cacheKey = `page@sz:${pathname.toLowerCase()}`
   
-  if (doCache) {
+  if (cacheTTL) {
     // Check the cache for an entry matching the requested path
     const cachedValue = cache.products.getKey(cacheKey)
-
-    if (cachedValue && cachedValue.timestamp && (Date.now() - cachedValue.timestamp < 31536000))
-      return Promise.resolve(new JSDOM(cachedValue.value))
+    
+    if (cachedValue && cachedValue.timestamp && (Date.now() - cachedValue.timestamp < cacheTTL))
+      return Promise.resolve({ result: cachedValue.value, cached: true })
   }
   
   // Use JSDOM's `fromURL` convenience method to download and parse the HTML
   // content of the requested page
   return JSDOM.fromURL(`${process.env.SZSITE}${pathname}`).then(jsdom => {
-    // This step saves the resulting HTML to the cache, unless `doCache` is set
-    // to false; in which case it is skipped
-    
-    if (doCache) {
-      cache.products.setKey(cacheKey, { timestamp: Date.now(), value: jsdom.serialize() })
-      cache.products.save()
-    }
-    
-    return jsdom
+    return { result: jsdom, cached: false, setCache: value => {
+      if (!cacheTTL) return
+      
+      cache.products.setKey(cacheKey, { timestamp: Date.now(), value })
+      cache.products.save(true)
+    }}
   })
 }
 
@@ -211,7 +232,8 @@ function fetchWebpage(pathname = "/", doCache = true) {
   abbreviateOffer(offer: string): string
   
   Generate an abbreviation for a given offer; e.g. "Buy One Get One Free" would
-  become "BOGOF".
+  become "BOGOF". Single-word offer names will not be abbreviated; e.g. "Save"
+  becomes "SAVE".
 */
 function abbreviateOffer(offer) {
   /*
@@ -220,7 +242,7 @@ function abbreviateOffer(offer) {
     as it would be anyone's guess what "S" stands for. Otherwise, split the string into an
     Array at any non-alphanumeric characters, including punctuation and whitespace.
   */
-  return offer.trim().indexOf(" ") === -1 ? offer : offer.split(/[^A-Z0-9]/gi)
+  return offer.trim().indexOf(" ") === -1 ? offer.toUpperCase() : offer.split(/[^A-Z0-9]/gi)
     // Remove any zero-length strings from the Array
     .filter(word => word.length)
     /*
@@ -269,9 +291,28 @@ function abbreviateOffer(offer) {
   levels have been retrieved from.
 */
 function getProductInfo({ styleCode, storeId }) {
+  /*
+    As of 2020-07-19, product codes may be up to 6-digits long. This means we now need
+    to appropriately handle product codes with more than 5 digits. Size codes are still
+    currently only 3 digits long.
+    
+    We can determine if a styleCode also contains a size code and truncate it by
+    subtracting 3 from its length. If length-3 is greater than or equal to 5, then
+    it most likely contains a size code too, and we should remove the last 3
+    characters.
+    
+    If no size code was appended to the style code, then subtracting 3 will result
+    in a value less than 5 (the minimum length of a style code).
+  */
+  if (styleCode.length - 3 >= 5)
+    styleCode = styleCode.substr(0, styleCode.length - 3)
+  
   // Fetch the product page from the Shoe Zone website. This calls the `fetchWebpage`
-  // method, which is documented above. The resolved value is a JSDOM object.
-  return fetchWebpage(`/Products/Product-${styleCode.substr(0, 5)}`, false).then(jsdom => {
+  // method, which is documented above. The resolved value is a JSDOM object. Pages
+  // will be cached for 60000ms (1 minute).
+  return fetchWebpage(`/Products/Product-${styleCode}`, 6e4).then(({ cached, result: jsdom, setCache }) => {
+    if (cached) return jsdom
+    
     // Extract the document from the JSDOM object and set it as a variable named "dom"
     const { window: { document: dom } } = jsdom
     
@@ -335,11 +376,14 @@ function getProductInfo({ styleCode, storeId }) {
           image: offer.querySelector("img").getAttribute("src"),
           abbr: abbreviateOffer(offer.getAttribute("title"))
         })
-      ),
+      ).filter(({ name }) => !ignoredOffers.includes(name.toLowerCase())),
       
       // NOT IMPLEMENTED - See notes.
       // storeId: undefined
     }
+    
+    // store the resulting JSON data in the cache
+    setCache(productInfo)
     
     return productInfo
   })
