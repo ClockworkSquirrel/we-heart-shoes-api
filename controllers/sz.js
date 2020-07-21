@@ -48,7 +48,8 @@ const cache = {
   of the offer badge.
 */
 const ignoredOffers = [
-  "memory foam"
+  "memory foam",
+  "wide fit"
 ]
 
 /*
@@ -324,6 +325,9 @@ function getProductInfo({ styleCode, storeId }) {
       
       // The name of the product. Extracted from the main title on the product page.
       name: dom.querySelector(`[itemprop="name"]`).textContent.trim(),
+      
+      // The product description, as displayed on the product page.
+      description: dom.querySelector(`[itemprop="description"]`).textContent.trim(),
       
       /*
         An object containing the current price of the product, as displayed on its product
