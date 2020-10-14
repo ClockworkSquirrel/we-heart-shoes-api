@@ -4,10 +4,11 @@
 */
 const express = require("express")
 const path = require("path")
+const cors = require("cors")
 const app = express()
 
 // Allow requests from remote clients/servers
-app.use(require("cors")())
+app.use(cors())
 
 // Handle routing by initiating "routes/index.js"
 app.use(require(path.join(__dirname, "routes")))
