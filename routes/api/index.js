@@ -34,6 +34,8 @@ const sz = require("../../controllers/sz")
 router.get("/locate", (req, res) => {
   const { city, postcode, lat, lon } = req.query
   
+  console.info(`New location request:`, city, postcode, lat, lon)
+  
   sz.locateStore({ city, postcode, lat, lon })
     .then(
       storeInfo => res.json({
@@ -91,10 +93,14 @@ router.get("/product/:styleCode", (req, res) => {
   sz.getProductInfo({ styleCode }).then(productInfo => res.json({
     ok: true,
     result: productInfo
-  })).catch(err => res.status(err.statusCode || 500).json({
-    ok: false,
-    result: err.message
-  }))
+  })).catch(err => {
+    console.error(err)
+    
+    res.status(err.statusCode || 500).json({
+      ok: false,
+      result: err.message
+    })
+  })
 })
 
 module.exports = router

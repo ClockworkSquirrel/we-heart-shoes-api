@@ -114,7 +114,8 @@ function locateStore({ lat, lon, city, postcode }) {
     ).join(" "),
     storeId: Number(data.Key),
     storeAddress: `${data.Property}, ${data.Street}, ${data.PostCode}`,
-    storePhone: data.Telephone.split(" ").join("")
+    storePhone: data.Telephone.split(" ").join(""),
+    date: (new Date()).toLocaleString()
   })).then(data => {
     cache.locator.setKey(cacheKey, data)
     cache.locator.save(true)
@@ -219,6 +220,8 @@ function fetchWebpage(pathname = "/", cacheTTL = 31536000) {
   // Use JSDOM's `fromURL` convenience method to download and parse the HTML
   // content of the requested page
   return JSDOM.fromURL(`${process.env.SZSITE}${pathname}`).then(jsdom => {
+    console.dir(jsdom)
+    
     return { result: jsdom, cached: false, setCache: value => {
       if (!cacheTTL) return
       
@@ -311,23 +314,26 @@ function getProductInfo({ styleCode, storeId }) {
   // Fetch the product page from the Shoe Zone website. This calls the `fetchWebpage`
   // method, which is documented above. The resolved value is a JSDOM object. Pages
   // will be cached for 60000ms (1 minute).
-  return fetchWebpage(`/Products/Product-${styleCode}`, 6e4).then(({ cached, result: jsdom, setCache }) => {
+  return fetchWebpage(`/Products/Product-${styleCode}`).then(({ cached, result: jsdom, setCache }) => {
     if (cached) return jsdom
     
     // Extract the document from the JSDOM object and set it as a variable named "dom"
     const { window: { document: dom } } = jsdom
     
+    // Extract metadata from JSON SEO
+    const seo = JSON.parse(dom.querySelector("script[type='application/ld+json']").innerHTML)
+    
     // Parse product information from the webpage
     const productInfo = {
       // The product ID (a.k.a. "Style Code" in most cases). This is typically displayed below
       // the price listing.
-      id: Number(dom.querySelector(`[itemprop="sku"]`).textContent),
+      id: Number(seo.mainEntity.sku),
       
       // The name of the product. Extracted from the main title on the product page.
-      name: dom.querySelector(`[itemprop="name"]`).textContent.trim(),
+      name: seo.mainEntity.name.trim(),
       
       // The product description, as displayed on the product page.
-      description: dom.querySelector(`[itemprop="description"]`).textContent.trim(),
+      description: seo.mainEntity.description.trim(),
       
       /*
         An object containing the current price of the product, as displayed on its product
@@ -336,7 +342,7 @@ function getProductInfo({ styleCode, storeId }) {
         page under "Price History".
       */
       price: {
-        current: Number(dom.querySelector(`[itemprop="price"]`).getAttribute("content"))
+        current: Number(seo.mainEntity.offers.price)
       },
       
       /*
@@ -344,7 +350,7 @@ function getProductInfo({ styleCode, storeId }) {
         in GBP (Pounds), but could potentially be displayed in EUR (Euro), as Shoe Zone
         also serves Ireland.
       */
-      currency: dom.querySelector(`[itemprop="priceCurrency"]`).getAttribute("content").trim().toUpperCase(),
+      currency: seo.mainEntity.offers.priceCurrency.trim().toUpperCase(),
       
       /*
         This is the first product image displayed on the product page. Usually a 400x400
@@ -358,14 +364,14 @@ function getProductInfo({ styleCode, storeId }) {
       
       // An Array of Objects containing information about the size range of this product. Also
       // includes current quantities of stock available to order (currently in the warehouse)
-      sizeRange: Array.from(dom.querySelectorAll("#divSizeSelector li[data-id][data-qty]")).map(size => ({
-        size: size.textContent.trim().toUpperCase(),
+      sizeRange: Array.from(dom.querySelectorAll("select#productSelectedSize option")).filter(option => option.value.length).map(size => ({
+        size: size.getAttribute("data-display-size"),
         stock: {
-          warehouse: Number(size.getAttribute("data-qty")),
+          warehouse: Number(size.getAttribute("data-available-qty")),
           // NOT IMPLEMENTED - See notes.
-          // store: undefined
+          // store: undefineddata-display-size
         },
-        code: size.getAttribute("data-id").trim().substr(-3)
+        code: size.value.trim().substr(-3)
       })),
       
       /*
@@ -388,6 +394,8 @@ function getProductInfo({ styleCode, storeId }) {
     
     // store the resulting JSON data in the cache
     setCache(productInfo)
+    
+    console.dir(productInfo)
     
     return productInfo
   })
